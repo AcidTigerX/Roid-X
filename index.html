@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Roid X</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            border: 1px solid white;
+        }
+        #startButton {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 20px 40px;
+            font-size: 24px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10;
+            top: 850px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1200" height="800"></canvas>
+    <button id="startButton">Start Game</button>
+    <script>
+        console.log("Starting Roid X...");
+
+        // Version number - UPDATE THIS EACH TIME GROK MODIFIES THE CODE
+        const gameVersion = "Version 0.5 Alpha";
+
+        // Credits:
+        // Concept and idea by AcidTigerX
+        // Code implementation by Grok (xAI)
+
+        const playerImage = new Image();
+        playerImage.src = 'assets/player_ship_1.png';
+
+        const asteroidImages = [];
+        for (let i = 1; i <= 10; i++) {
+            const img = new Image();
+            img.src = `assets/asteroid_${i}.png`;
+            asteroidImages.push(img);
+        }
+
+        const goldAsteroidImages = [];
+        for (let i = 1; i <= 3; i++) {
+            const img = new Image();
+            img.src = `assets/gold_asteroid_${i}.png`;
+            goldAsteroidImages.push(img);
+        }
+
+        const enemyImages = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image();
+            img.src = `assets/enemy_ship_${i}.png`;
+            enemyImages.push(img);
+        }
+
+        const bulletImage = new Image();
+        bulletImage.src = 'assets/bullet.png';
+
+        const powerUpImage = new Image();
+        powerUpImage.src = 'assets/power_up.png';
+
+        function testAssets() {
+            const allAssets = [
+                { img: playerImage, name: 'player_ship_1.png' },
+                ...asteroidImages.map((img, i) => ({ img, name: `asteroid_${i + 1}.png` })),
+                ...goldAsteroidImages.map((img, i) => ({ img, name: `gold_asteroid_${i + 1}.png` })),
+                ...enemyImages.map((img, i) => ({ img, name: `enemy_ship_${i + 1}.png` })),
+                { img: bulletImage, name: 'bullet.png' },
+                { img: powerUpImage, name: 'power_up.png' }
+            ];
+
+            console.log("Starting asset load test...");
+            const assetPromises = allAssets.map(asset => {
+                return new Promise((resolve) => {
+                    if (asset.img.complete && asset.img.naturalWidth !== 0) {
+                        console.log(`Asset ${asset.name} loaded successfully (cached)`);
+                        resolve({ name: asset.name, success: true });
+                        return;
+                    }
+                    asset.img.onload = () => {
+                        console.log(`Asset ${asset.name} loaded successfully`);
+                        resolve({ name: asset.name, success: true });
+                    };
+                    asset.img.onerror = () => {
+                        console.error(`Asset ${asset.name} failed to load`);
+                        resolve({ name: asset.name, success: false });
+                    };
+                });
+            });
+
+            Promise.all(assetPromises).then(results => {
+                console.log("Asset load test completed:");
+                results.forEach(result => {
+                    console.log(`${result.name}: ${result.success ? 'Loaded' : 'Failed'}`);
+                });
+                const failedCount = results.filter(r => !r.success).length;
+                if (failedCount === 0) {
+                    console.log("All assets loaded successfully!");
+                } else {
+                    console.warn(`${failedCount} asset(s) failed to load. Game may still run with missing assets.`);
+                }
+            });
+        }
+
+        testAssets();
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+
+        let playerX = 600;
+        let playerY = 400;
+        let playerAngle = 0;
+        let playerVelocityX = 0;
+        let playerVelocityY = 0;
+        let rotateLeft = false;
+        let rotateRight = false;
+        let forwardThrust = false;
+        let reverseThrust = false;
+        let strafeLeft = false;
+        let strafeRight = false;
+        let shooting = false;
+        const acceleration = 0.1;
+        const rotationSpeed = Math.PI / 180 * 5;
+        const bulletSpeed = 10;
+        let money = 0;
+        let totalMoneyEarned = 0;
+        let totalMoneySpent = 0;
+        let highMoney = parseInt(localStorage.getItem('highMoney')) || 0;
+        let enemiesKilled = 0;
+        let highEnemiesKilled = parseInt(localStorage.getItem('highEnemiesKilled')) || 0;
+        let gameState = 'menu';
+        let gameActive = false;
+        let lastShotTime = 0;
+        let lastScoreThreshold = 0;
+        let gameOverTimeout = null;
+        let lastAsteroidSpawnTime = 0;
+        let lastDeathTime = 0;
+        const asteroidSpawnCooldown = 250;
+        let shotsFired = 0;
+        let shotsHit = 0;
+        const asteroidMaxSpeed = 7;
+        const maxNormalAsteroids = 10;
+        let debugMode = false;
+        let shieldHealth = 7;
+        const maxShieldHealth = 7;
+        let shieldHitTime = 0;
+        let secondShieldHealth = 0;
+        let secondShieldHitTime = 0;
+        let enemiesPresent = false;
+        let goldAttractionActive = false;
+        let triShotActive = false;
+        let secondShieldActive = false;
+        let repulseActive = false;
+        let shieldRechargeActive = false;
+        let empActive = false;
+        let fasterFireActive = false;
+        let largeRepelActive = false;
+        let bulletWrapActive = false;
+        let heatSeekActive = false;
+        let goldAttractionEarned = false;
+        let triShotEarned = false;
+        let secondShieldEarned = false;
+        let repulseEarned = false;
+        let shieldRechargeEarned = false;
+        let empEarned = false;
+        let fasterFireEarned = false;
+        let largeRepelEarned = false;
+        let bulletWrapEarned = false;
+        let heatSeekEarned = false;
+        let lastRechargeTime = 0;
+        let lastEmpTime = 0;
+        let empFlashTime = 0;
+        let deathFlashTime = 0;
+        let powerUpCount = 0;
+        let currentLevel = 1;
+        const maxLevel = 10;
+        let lives = 1;
+        let lastLevelThreshold = 0;
+        let jammedPowerUps = [];
+        let levelStartTime = null;
+        let countdownStartTime = null;
+        let countdownActive = false;
+
+        const asteroids = [];
+        const enemies = [];
+        const bullets = [];
+        const enemyBullets = [];
+        const explosions = [];
+        const powerUps = [];
+
+        function getShieldBaseColor(health) {
+            switch (health) {
+                case 7: return 'purple';
+                case 6: return 'indigo';
+                case 5: return 'blue';
+                case 4: return 'green';
+                case 3: return 'yellow';
+                case 2: return 'orange';
+                case 1: return 'red';
+                case 0: return 'transparent';
+                default: return 'purple';
+            }
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === 'playing') {
+                const currentTime = Date.now();
+
+                if (!countdownActive) {
+                    if (empFlashTime > 0 && currentTime - empFlashTime < 500) {
+                        const alpha = 0.7 * (1 - (currentTime - empFlashTime) / 500);
+                        const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2);
+                        gradient.addColorStop(0, `rgba(0, 255, 255, ${alpha})`);
+                        gradient.addColorStop(1, `rgba(0, 128, 255, 0)`);
+                        ctx.fillStyle = gradient;
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+
+                    if (deathFlashTime > 0 && currentTime - deathFlashTime < 500) {
+                        const alpha = 0.9 * (1 - (currentTime - deathFlashTime) / 500);
+                        const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2);
+                        gradient.addColorStop(0, `rgba(255, 0, 0, ${alpha})`);
+                        gradient.addColorStop(0.5, `rgba(255, 165, 0, ${alpha})`);
+                        gradient.addColorStop(1, `rgba(255, 255, 0, 0)`);
+                        ctx.fillStyle = gradient;
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    }
+
+                    ctx.save();
+                    ctx.translate(playerX, playerY);
+                    ctx.rotate(playerAngle);
+                    ctx.drawImage(playerImage, -37.5, -37.5, 75, 75);
+                    ctx.restore();
+
+                    const pulse = 0.1 * Math.sin(currentTime / 500);
+                    ctx.globalAlpha = 0.8 + pulse;
+                    ctx.strokeStyle = (currentTime - shieldHitTime < 200) ? 'white' : getShieldBaseColor(shieldHealth);
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(playerX, playerY, 50, 0, 2 * Math.PI);
+                    ctx.stroke();
+
+                    if (secondShieldActive && secondShieldHealth > 0 && !jammedPowerUps.includes('secondShield')) {
+                        ctx.strokeStyle = (currentTime - secondShieldHitTime < 200) ? 'white' : getShieldBaseColor(secondShieldHealth);
+                        ctx.beginPath();
+                        ctx.arc(playerX, playerY, 70, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    if (debugMode) {
+                        ctx.strokeStyle = 'limegreen';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(playerX, playerY, 75/2, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    }
+
+                    for (let asteroid of asteroids) {
+                        ctx.save();
+                        ctx.translate(asteroid.x, asteroid.y);
+                        ctx.rotate(asteroid.rotation);
+                        ctx.globalAlpha = asteroid.opacity;
+                        if (enemiesPresent) {
+                            const hue = (currentTime / 1000) % 360;
+                            ctx.filter = `hue-rotate(${hue}deg)`;
+                        }
+                        ctx.drawImage(asteroid.image, -asteroid.width/2, -asteroid.height/2, asteroid.width, asteroid.height);
+                        ctx.filter = 'none';
+                        ctx.restore();
+
+                        if (debugMode) {
+                            ctx.strokeStyle = 'limegreen';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(asteroid.x, asteroid.y, asteroid.width/2, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                    }
+                    ctx.globalAlpha = 1.0;
+
+                    for (let bullet of bullets) {
+                        ctx.drawImage(bulletImage, bullet.x - bulletImage.width/2, bullet.y - bulletImage.height/2);
+                        if (debugMode) {
+                            ctx.strokeStyle = 'limegreen';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(bullet.x, bullet.y, bullet.width/2, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                    }
+
+                    for (let bullet of enemyBullets) {
+                        ctx.drawImage(bulletImage, bullet.x - bulletImage.width/2, bullet.y - bulletImage.height/2);
+                        if (debugMode) {
+                            ctx.strokeStyle = 'limegreen';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(bullet.x, bullet.y, bullet.width/2, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                    }
+
+                    for (let enemy of enemies) {
+                        ctx.save();
+                        ctx.translate(enemy.x, enemy.y);
+                        ctx.rotate(enemy.rotation);
+                        ctx.drawImage(enemy.image, -37.5, -37.5, 75, 75);
+                        ctx.restore();
+
+                        ctx.globalAlpha = 0.8 + pulse;
+                        ctx.strokeStyle = (currentTime - enemy.shieldHitTime < 200) ? 'white' : getShieldBaseColor(Math.min(enemy.shieldHealth, maxShieldHealth));
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, 50, 0, 2 * Math.PI);
+                        ctx.stroke();
+
+                        if (enemy.secondShieldHealth > 0) {
+                            ctx.strokeStyle = (currentTime - enemy.secondShieldHitTime < 200) ? 'white' : getShieldBaseColor(enemy.secondShieldHealth);
+                            ctx.beginPath();
+                            ctx.arc(enemy.x, enemy.y, 70, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                        ctx.globalAlpha = 1.0;
+
+                        if (debugMode) {
+                            ctx.strokeStyle = 'limegreen';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(enemy.x, enemy.y, 75/2, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                    }
+
+                    for (let powerUp of powerUps) {
+                        ctx.save();
+                        ctx.translate(powerUp.x, powerUp.y);
+                        ctx.drawImage(powerUpImage, -37.5, -37.5, 75, 75);
+                        ctx.restore();
+
+                        if (debugMode) {
+                            ctx.strokeStyle = 'limegreen';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(powerUp.x, powerUp.y, 75/2, 0, 2 * Math.PI);
+                            ctx.stroke();
+                        }
+                    }
+
+                    for (let i = explosions.length - 1; i >= 0; i--) {
+                        const explosion = explosions[i];
+                        const elapsed = currentTime - explosion.startTime;
+                        if (elapsed > explosion.duration) {
+                            explosions.splice(i, 1);
+                            continue;
+                        }
+                        const alpha = 0.6 * (1 - elapsed / explosion.duration);
+                        const radius = (elapsed / explosion.duration) * 50;
+                        const gradient = ctx.createRadialGradient(explosion.x, explosion.y, 0, explosion.x, explosion.y, radius);
+                        gradient.addColorStop(0, `rgba(255, 255, 0, ${alpha})`);
+                        gradient.addColorStop(0.5, `rgba(255, 165, 0, ${alpha})`);
+                        gradient.addColorStop(1, `rgba(255, 0, 0, 0)`);
+                        ctx.beginPath();
+                        ctx.arc(explosion.x, explosion.y, radius, 0, 2 * Math.PI);
+                        ctx.fillStyle = gradient;
+                        ctx.fill();
+                    }
+
+                    const shipSize = 75 * 0.5;
+                    ctx.font = '24px Arial';
+                    ctx.fillStyle = 'white';
+                    ctx.fillText('Lives', 10, canvas.height - shipSize - 20);
+                    for (let i = 0; i < lives; i++) {
+                        ctx.drawImage(playerImage, 10 + i * (shipSize + 5), canvas.height - shipSize - 10, shipSize, shipSize);
+                    }
+
+                    ctx.font = '24px Arial';
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(`$: ${money}`, 10, 30);
+                    let yOffset = 60;
+                    const powerUpsList = [
+                        { name: 'Gold', active: goldAttractionActive, key: 'goldAttraction', earned: goldAttractionEarned },
+                        { name: 'TriShot', active: triShotActive, key: 'triShot', earned: triShotEarned },
+                        { name: 'Shield2', active: secondShieldActive, key: 'secondShield', earned: secondShieldEarned },
+                        { name: 'Repulse', active: repulseActive, key: 'repulse', earned: repulseEarned },
+                        { name: 'Recharge', active: shieldRechargeActive, key: 'shieldRecharge', earned: shieldRechargeEarned },
+                        { name: 'EMP', active: empActive, key: 'emp', earned: empEarned },
+                        { name: 'FastFire', active: fasterFireActive, key: 'fasterFire', earned: fasterFireEarned },
+                        { name: 'LargeRepel', active: largeRepelActive, key: 'largeRepel', earned: largeRepelEarned },
+                        { name: 'BulletWrap', active: bulletWrapActive, key: 'bulletWrap', earned: bulletWrapEarned },
+                        { name: 'HeatSeek', active: heatSeekActive, key: 'heatSeek', earned: heatSeekEarned }
+                    ];
+                    powerUpsList.forEach(p => {
+                        if (p.earned || debugMode) {
+                            ctx.fillStyle = p.key === 'emp' ? (p.active ? 'white' : 'grey') : (jammedPowerUps.includes(p.key) ? 'red' : (p.active ? 'white' : 'grey'));
+                            ctx.fillText(`${p.name}: ${p.active ? (jammedPowerUps.includes(p.key) && p.key !== 'emp' ? 'Jammed' : 'On') : 'Off'}`, 10, yOffset);
+                            yOffset += 30;
+                        }
+                    });
+
+                    ctx.font = '20px Arial';
+                    ctx.fillStyle = 'white';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(gameVersion, canvas.width - 10, 30);
+                    ctx.fillText(`Level ${currentLevel}`, canvas.width - 10, canvas.height - 10);
+                    ctx.textAlign = 'left';
+
+                    if (levelStartTime !== null) {
+                        const elapsed = currentTime - levelStartTime;
+                        if (elapsed <= 3000) {
+                            const alpha = 1 - (elapsed / 3000);
+                            ctx.fillStyle = `rgba(50, 205, 50, ${alpha})`;
+                            ctx.font = 'bold 72px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(`Level ${currentLevel}`, canvas.width / 2, canvas.height / 2);
+                            ctx.textAlign = 'left';
+                        } else {
+                            levelStartTime = null;
+                        }
+                    }
+                }
+
+                if (countdownActive && countdownStartTime !== null) {
+                    const elapsed = currentTime - countdownStartTime;
+                    if (elapsed <= 3000) {
+                        const secondsLeft = Math.ceil((3000 - elapsed) / 1000);
+                        ctx.fillStyle = '#ff5500';
+                        ctx.font = 'bold 72px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`${secondsLeft}`, canvas.width / 2, canvas.height / 2);
+                        ctx.textAlign = 'left';
+                    } else {
+                        countdownActive = false;
+                        countdownStartTime = null;
+                        gameActive = true;
+                        if (!levelStartTime) levelStartTime = Date.now();
+                    }
+                }
+            }
+
+            if (gameState === 'gameover') {
+                ctx.fillStyle = 'white';
+                ctx.font = '48px Arial';
+                ctx.fillText('Game Over', canvas.width/2 - 100, canvas.height/2 - 50);
+                ctx.font = '24px Arial';
+                ctx.fillText(`Final $: ${money}`, canvas.width/2 - 80, canvas.height/2 - 10);
+                ctx.fillText(`High $: ${highMoney}`, canvas.width/2 - 80, canvas.height/2 + 20);
+                ctx.fillText(`Enemies Killed: ${enemiesKilled}`, canvas.width/2 - 80, canvas.height/2 + 50);
+                ctx.fillText(`Highest Level: ${currentLevel}`, canvas.width/2 - 80, canvas.height/2 + 80);
+                startButton.style.display = 'block';
+            }
+        }
+
+        function resetGame() {
+            playerX = 600;
+            playerY = 400;
+            playerAngle = 0;
+            playerVelocityX = 0;
+            playerVelocityY = 0;
+            rotateLeft = false;
+            rotateRight = false;
+            forwardThrust = false;
+            reverseThrust = false;
+            strafeLeft = false;
+            strafeRight = false;
+            shooting = false;
+            money = 0;
+            totalMoneyEarned = 0;
+            totalMoneySpent = 0;
+            shieldHealth = maxShieldHealth;
+            secondShieldHealth = 0;
+            shieldHitTime = 0;
+            secondShieldHitTime = 0;
+            enemiesKilled = 0;
+            enemiesPresent = false;
+            goldAttractionActive = false;
+            triShotActive = false;
+            secondShieldActive = false;
+            repulseActive = false;
+            shieldRechargeActive = false;
+            empActive = false;
+            fasterFireActive = false;
+            largeRepelActive = false;
+            bulletWrapActive = false;
+            heatSeekActive = false;
+            goldAttractionEarned = false;
+            triShotEarned = false;
+            secondShieldEarned = false;
+            repulseEarned = false;
+            shieldRechargeEarned = false;
+            empEarned = false;
+            fasterFireEarned = false;
+            largeRepelEarned = false;
+            bulletWrapEarned = false;
+            heatSeekEarned = false;
+            lastRechargeTime = 0;
+            lastEmpTime = 0;
+            empFlashTime = 0;
+            deathFlashTime = 0;
+            lastDeathTime = 0;
+            powerUpCount = 0;
+            lastScoreThreshold = 0;
+            bullets.length = 0;
+            enemyBullets.length = 0;
+            asteroids.length = 0;
+            enemies.length = 0;
+            explosions.length = 0;
+            powerUps.length = 0;
+            lastAsteroidSpawnTime = 0;
+            shotsFired = 0;
+            shotsHit = 0;
+            currentLevel = 1;
+            lives = 1;
+            lastLevelThreshold = 0;
+            jammedPowerUps = [];
+            countdownStartTime = Date.now();
+            countdownActive = true;
+            gameActive = false;
+            levelStartTime = null;
+            spawnAsteroids();
+            gameState = 'playing';
+            startButton.style.display = 'none';
+            console.log("Game reset, countdown started");
+        }
+
+        function getOffScreenPosition(size) {
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            switch(side) {
+                case 0: x = Math.random() * 75 - 150; y = Math.random() * 800; break;
+                case 1: x = Math.random() * 125 + 1275; y = Math.random() * 800; break;
+                case 2: x = Math.random() * 1200; y = Math.random() * 75 - 150; break;
+                case 3: x = Math.random() * 1200; y = Math.random() * 125 + 875; break;
+            }
+            return { x, y };
+        }
+
+        function getVelocityTowardsTarget(x, y, targetX, targetY, speed, repel = false) {
+            const dx = targetX - x;
+            const dy = targetY - y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance === 0) return { velocityX: 0, velocityY: 0 };
+            const direction = repel ? -1 : 1;
+            const velocityX = direction * (dx / distance) * speed;
+            const velocityY = direction * (dy / distance) * speed;
+            return { velocityX, velocityY };
+        }
+
+        function isOverlapping(newObj, existingObjects, isBreakup = false) {
+            if (isBreakup) return false;
+            for (let obj of existingObjects) {
+                const dx = newObj.x - obj.x;
+                const dy = newObj.y - obj.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDistance = (newObj.width + obj.width) / 2;
+                if (distance < minDistance) return true;
+            }
+            return false;
+        }
+
+        function spawnAsteroid(isGold, baseX, baseY) {
+            const normalAsteroidCount = asteroids.filter(a => !a.isGold).length;
+            if (!isGold && normalAsteroidCount >= maxNormalAsteroids) {
+                console.log("Max normal asteroids (10) reached, skipping spawn");
+                return;
+            }
+
+            let x, y, scale, size, image, angularVelocity, mass;
+            const hitsRequired = isGold ? 1 : currentLevel;
+            if (baseX !== undefined && baseY !== undefined) {
+                let attempts = 0;
+                const maxAttempts = 50;
+                do {
+                    x = baseX + (Math.random() * 150 - 75);
+                    y = baseY + (Math.random() * 150 - 75);
+                    scale = isGold ? 0.25 : 0.25;
+                    size = 150 * scale;
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        console.warn("Could not find valid breakup asteroid position, skipping");
+                        return;
+                    }
+                } while (isOverlapping({ x, y, width: size, height: size }, asteroids));
+                mass = scale * scale;
+                angularVelocity = isGold ? (Math.random() * 0.06 - 0.03) : (Math.random() * 0.02 - 0.01);
+                image = isGold ? goldAsteroidImages[Math.floor(Math.random() * 3)] : asteroidImages[Math.floor(Math.random() * 10)];
+                const angle = Math.random() * 2 * Math.PI;
+                const speed = Math.min(4.0, asteroidMaxSpeed);
+                let velocityX = Math.cos(angle) * speed;
+                let velocityY = Math.sin(angle) * speed;
+                const spawnTime = Date.now();
+                const lifetime = scale === 0.25 ? 5000 : Infinity;
+                asteroids.push({ x, y, velocityX, velocityY, width: size, height: size, image, rotation: 0, angularVelocity, scale, isGold, mass, spawnTime, lifetime, opacity: 0, hitsRequired, hitsTaken: 0 });
+            } else {
+                const maxAttempts = 1000;
+                let attempts = 0;
+                do {
+                    const pos = getOffScreenPosition(150);
+                    x = pos.x;
+                    y = pos.y;
+                    scale = isGold ? 0.25 : [0.75, 1.0][Math.floor(Math.random() * 2)];
+                    size = 150 * scale;
+                    mass = scale * scale;
+                    angularVelocity = isGold ? (Math.random() * 0.06 - 0.03) : (Math.random() * 0.02 - 0.01);
+                    image = isGold ? goldAsteroidImages[Math.floor(Math.random() * 3)] : asteroidImages[Math.floor(Math.random() * 10)];
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        console.warn("Could not find valid position for asteroid");
+                        return;
+                    }
+                } while (isOverlapping({ x, y, width: size, height: size }, asteroids));
+                const vel = getVelocityTowardsTarget(x, y, 600, 400, 0.5);
+                let velocityX = vel.velocityX;
+                let velocityY = vel.velocityY;
+                const speed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+                if (speed > asteroidMaxSpeed) {
+                    velocityX = (velocityX / speed) * asteroidMaxSpeed;
+                    velocityY = (velocityY / speed) * asteroidMaxSpeed;
+                }
+                const spawnTime = Date.now();
+                const lifetime = scale === 0.25 ? 5000 : Infinity;
+                asteroids.push({ x, y, velocityX, velocityY, width: size, height: size, image, rotation: 0, angularVelocity, scale, isGold, mass, spawnTime, lifetime, opacity: 0, hitsRequired, hitsTaken: 0 });
+            }
+        }
+
+        function spawnSmallAsteroid(baseX, baseY) {
+            const normalAsteroidCount = asteroids.filter(a => !a.isGold).length;
+            if (normalAsteroidCount >= maxNormalAsteroids) {
+                console.log("Max normal asteroids (10) reached, skipping small asteroid spawn");
+                return;
+            }
+
+            let x, y;
+            const scale = 0.25;
+            const size = 150 * scale;
+            const mass = scale * scale;
+            const angularVelocity = (Math.random() * 0.06 - 0.03);
+            const image = asteroidImages[Math.floor(Math.random() * 10)];
+            let attempts = 0;
+            const maxAttempts = 50;
+            do {
+                x = baseX + (Math.random() * 150 - 75);
+                y = baseY + (Math.random() * 150 - 75);
+                attempts++;
+                if (attempts > maxAttempts) {
+                    console.warn("Could not find valid position for small asteroid, skipping");
+                    return;
+                }
+            } while (isOverlapping({ x, y, width: size, height: size }, asteroids));
+            const angle = Math.random() * 2 * Math.PI;
+            const speed = Math.min(4.0, asteroidMaxSpeed);
+            let velocityX = Math.cos(angle) * speed;
+            let velocityY = Math.sin(angle) * speed;
+            const spawnTime = Date.now();
+            const lifetime = 5000;
+            const hitsRequired = currentLevel;
+            asteroids.push({ x, y, velocityX, velocityY, width: size, height: size, image, rotation: 0, angularVelocity, scale, isGold: false, mass, spawnTime, lifetime, opacity: 0, hitsRequired, hitsTaken: 0 });
+        }
+
+        function spawnAsteroids() {
+            const currentTime = Date.now();
+            if (currentTime - lastDeathTime < 5000) {
+                console.log("Respawn delayed: 5 seconds not elapsed since last death");
+                return;
+            }
+            for (let i = 0; i < 5; i++) {
+                spawnAsteroid(false);
+            }
+        }
+
+        function spawnPowerUp(x, y, jammedPowerUp = null) {
+            powerUpCount++;
+            let type;
+            if (jammedPowerUp) {
+                type = jammedPowerUp;
+            } else {
+                if (powerUpCount === 1) type = 'goldAttraction';
+                else if (powerUpCount === 2) type = 'triShot';
+                else if (powerUpCount === 3) type = 'secondShield';
+                else if (powerUpCount === 4) type = 'repulse';
+                else if (powerUpCount === 5) type = 'shieldRecharge';
+                else if (powerUpCount === 6) type = 'emp';
+                else if (powerUpCount === 7) type = 'fasterFire';
+                else if (powerUpCount === 8) type = 'largeRepel';
+                else if (powerUpCount === 9) type = 'bulletWrap';
+                else type = 'heatSeek';
+            }
+            powerUps.push({ x, y, width: 75, height: 75, type, jammedPowerUp });
+            console.log(`Power-up spawned at (${x}, ${y}) - Type: ${type}${jammedPowerUp ? ` (Unjams ${jammedPowerUp})` : ''}`);
+        }
+
+        function spawnEnemyShip() {
+            const scale = 1;
+            const size = 75;
+            const enemyShieldHealth = maxShieldHealth;
+            const hitsRequired = 8;
+            for (let i = 0; i < currentLevel; i++) {
+                let position;
+                let validPosition = false;
+                let attempts = 0;
+                const maxAttempts = 1000;
+                do {
+                    position = getOffScreenPosition(size);
+                    validPosition = !asteroids.some(asteroid => isColliding({ x: position.x, y: position.y, width: size, height: size }, asteroid)) &&
+                                    !enemies.some(enemy => isColliding({ x: position.x, y: position.y, width: size, height: size }, enemy));
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        console.warn("Could not find valid position for enemy");
+                        return;
+                    }
+                } while (!validPosition);
+                const { x, y } = position;
+                const velocityX = Math.random() * 2 - 1;
+                const velocityY = Math.random() * 2 - 1;
+                const angularVelocity = (Math.random() * 0.02 - 0.01);
+                const image = enemyImages[Math.floor(Math.random() * 4)];
+                let jammedPowerUp = null;
+                if (currentLevel >= 2) {
+                    const activePowerUps = [
+                        goldAttractionActive && 'goldAttraction',
+                        triShotActive && 'triShot',
+                        secondShieldActive && 'secondShield',
+                        repulseActive && 'repulse',
+                        shieldRechargeActive && 'shieldRecharge',
+                        fasterFireActive && 'fasterFire',
+                        largeRepelActive && 'largeRepel',
+                        bulletWrapActive && 'bulletWrap',
+                        heatSeekActive && 'heatSeek'
+                    ].filter(p => p && !jammedPowerUps.includes(p));
+                    if (activePowerUps.length > 0) {
+                        jammedPowerUp = activePowerUps[Math.floor(Math.random() * activePowerUps.length)];
+                        jammedPowerUps.push(jammedPowerUp);
+                        console.log(`Enemy at (${x}, ${y}) jammed power-up: ${jammedPowerUp}`);
+                    }
+                }
+                const enemy = { 
+                    x, y, 
+                    velocityX, velocityY, 
+                    width: size, height: size, 
+                    image, 
+                    rotation: 0, 
+                    angularVelocity, 
+                    lastShotTime: Date.now(),
+                    shieldHealth: enemyShieldHealth,
+                    shieldHitTime: 0,
+                    hitsRequired,
+                    hitsTaken: 0,
+                    jammedPowerUp
+                };
+                if (currentLevel >= 5) {
+                    enemy.secondShieldHealth = maxShieldHealth;
+                    enemy.secondShieldHitTime = 0;
+                    enemy.hitsRequired = 15;
+                    console.log(`Enemy at (${x}, ${y}) spawned with second shield, total hits required: ${enemy.hitsRequired}`);
+                }
+                enemies.push(enemy);
+            }
+            enemiesPresent = true;
+            console.log(`Spawned ${currentLevel} enemy ship(s) for Level ${currentLevel}, each requiring ${currentLevel >= 5 ? 15 : 8} shots to kill`);
+
+            if (empActive && money >= 10000) {
+                totalMoneySpent += 10000;
+                money -= 10000;
+                lastEmpTime = Date.now();
+                empFlashTime = Date.now();
+                let empMoney = 0;
+                for (let i = asteroids.length - 1; i >= 0; i--) {
+                    if (!asteroids[i].isGold) {
+                        empMoney += 10;
+                        asteroids.splice(i, 1);
+                    }
+                }
+                totalMoneyEarned += empMoney;
+                money += empMoney;
+                console.log(`EMP auto-triggered: ${empMoney} money earned from ${empMoney / 10} normal asteroids destroyed, gold preserved`);
+            }
+        }
+
+        function shootBullet() {
+            const fireCooldown = fasterFireActive && !jammedPowerUps.includes('fasterFire') ? 100 : 200;
+            if (Date.now() - lastShotTime > fireCooldown) {
+                const offset = 50;
+                const shootX = playerX - offset * Math.sin(playerAngle);
+                const shootY = playerY + offset * Math.cos(playerAngle);
+                
+                if (triShotActive && !jammedPowerUps.includes('triShot')) {
+                    const angles = [playerAngle, playerAngle + Math.PI / 12, playerAngle - Math.PI / 12];
+                    angles.forEach(angle => {
+                        const bulletVelocityX = -Math.sin(angle) * bulletSpeed;
+                        const bulletVelocityY = Math.cos(angle) * bulletSpeed;
+                        bullets.push({ x: shootX, y: shootY, velocityX: bulletVelocityX, velocityY: bulletVelocityY, width: 16, height: 16, lifetime: Date.now() + 3000 });
+                    });
+                    shotsFired += 3;
+                    totalMoneySpent += 3;
+                    money -= 3;
+                } else {
+                    const bulletVelocityX = -Math.sin(playerAngle) * bulletSpeed;
+                    const bulletVelocityY = Math.cos(playerAngle) * bulletSpeed;
+                    bullets.push({ x: shootX, y: shootY, velocityX: bulletVelocityX, velocityY: bulletVelocityY, width: 16, height: 16, lifetime: Date.now() + 3000 });
+                    shotsFired += 1;
+                    totalMoneySpent += 1;
+                    money -= 1;
+                }
+
+                lastShotTime = Date.now();
+            }
+        }
+
+        function shootEnemyBullet(enemy) {
+            const angleToPlayer = Math.atan2(playerY - enemy.y, playerX - enemy.x);
+            const shootX = enemy.x;
+            const shootY = enemy.y;
+            const bulletVelocityX = Math.cos(angleToPlayer) * bulletSpeed;
+            const bulletVelocityY = Math.sin(angleToPlayer) * bulletSpeed;
+            enemyBullets.push({ x: shootX, y: shootY, velocityX: bulletVelocityX, velocityY: bulletVelocityY, width: 16, height: 16, lifetime: Date.now() + 3000 });
+        }
+
+        function updatePlayer() {
+            if (!gameActive) return;
+            if (rotateLeft) playerAngle -= rotationSpeed;
+            if (rotateRight) playerAngle += rotationSpeed;
+            playerAngle = (playerAngle + 2 * Math.PI) % (2 * Math.PI);
+
+            if (forwardThrust) {
+                playerVelocityX += -Math.sin(playerAngle) * acceleration;
+                playerVelocityY += Math.cos(playerAngle) * acceleration;
+            }
+            if (reverseThrust) {
+                playerVelocityX += Math.sin(playerAngle) * acceleration;
+                playerVelocityY += -Math.cos(playerAngle) * acceleration;
+            }
+            if (strafeLeft) {
+                playerVelocityX += -Math.cos(playerAngle) * acceleration;
+                playerVelocityY += -Math.sin(playerAngle) * acceleration;
+            }
+            if (strafeRight) {
+                playerVelocityX += Math.cos(playerAngle) * acceleration;
+                playerVelocityY += Math.sin(playerAngle) * acceleration;
+            }
+
+            playerVelocityX *= 0.99;
+            playerVelocityY *= 0.99;
+
+            if (shooting) shootBullet();
+
+            updateGameLogic();
+        }
+
+        function handleAsteroidCollision(a1, a2) {
+            const m1 = a1.mass;
+            const m2 = a2.mass;
+            const v1x = a1.velocityX;
+            const v1y = a1.velocityY;
+            const v2x = a2.velocityX;
+            const v2y = a2.velocityY;
+
+            const v1xNew = ((m1 - m2) * v1x + 2 * m2 * v2x) / (m1 + m2);
+            const v1yNew = ((m1 - m2) * v1y + 2 * m2 * v2y) / (m1 + m2);
+            const v2xNew = ((m2 - m1) * v2x + 2 * m1 * v1x) / (m1 + m2);
+            const v2yNew = ((m2 - m1) * v2y + 2 * m1 * v1y) / (m1 + m2);
+
+            a1.velocityX = v1xNew;
+            a1.velocityY = v1yNew;
+            a2.velocityX = v2xNew;
+            a2.velocityY = v2yNew;
+
+            [a1, a2].forEach(asteroid => {
+                const speed = Math.sqrt(asteroid.velocityX * asteroid.velocityX + asteroid.velocityY * asteroid.velocityY);
+                if (speed > asteroidMaxSpeed) {
+                    asteroid.velocityX = (asteroid.velocityX / speed) * asteroidMaxSpeed;
+                    asteroid.velocityY = (asteroid.velocityY / speed) * asteroidMaxSpeed;
+                }
+            });
+
+            const tempAV = a1.angularVelocity;
+            a1.angularVelocity = a2.angularVelocity;
+            a2.angularVelocity = tempAV;
+
+            const dx = a2.x - a1.x;
+            const dy = a2.y - a1.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const minDistance = (a1.width + a2.width) / 2;
+            if (distance < minDistance) {
+                const overlap = minDistance - distance;
+                const angle = Math.atan2(dy, dx);
+                const pushX = Math.cos(angle) * overlap / 2;
+                const pushY = Math.sin(angle) * overlap / 2;
+                a1.x -= pushX;
+                a1.y -= pushY;
+                a2.x += pushX;
+                a2.y += pushY;
+            }
+        }
+
+        function handleShipCollision(player, enemy) {
+            const dx = enemy.x - playerX;
+            const dy = enemy.y - playerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const minDistance = (player.width + enemy.width) / 2;
+
+            if (distance < minDistance) {
+                const angle = Math.atan2(dy, dx);
+                const overlap = minDistance - distance;
+
+                // Bounce effect for shielded enemy
+                const speed = Math.sqrt(enemy.velocityX * enemy.velocityX + enemy.velocityY * enemy.velocityY);
+                enemy.velocityX = Math.cos(angle) * speed * 1.1;
+                enemy.velocityY = Math.sin(angle) * speed * 1.1;
+
+                // Push enemy away to prevent overlap
+                enemy.x += Math.cos(angle) * overlap;
+                enemy.y += Math.sin(angle) * overlap;
+            }
+        }
+
+        function updateGameLogic() {
+            if (!gameActive) return;
+            const currentTime = Date.now();
+
+            playerX += playerVelocityX;
+            playerY += playerVelocityY;
+
+            if (playerX < 0) playerX = canvas.width;
+            else if (playerX > canvas.width) playerX = 0;
+            if (playerY < 0) playerY = canvas.height;
+            else if (playerY > canvas.height) playerY = 0;
+
+            if (money >= lastLevelThreshold + 100000 && currentLevel < maxLevel) {
+                currentLevel++;
+                lives++;
+                lastLevelThreshold += 100000;
+                levelStartTime = Date.now();
+                console.log(`Level up! Now at Level ${currentLevel}, Lives: ${lives}`);
+            }
+
+            for (let i = 0; i < asteroids.length; i++) {
+                for (let j = i + 1; j < asteroids.length; j++) {
+                    if (isColliding(asteroids[i], asteroids[j])) {
+                        handleAsteroidCollision(asteroids[i], asteroids[j]);
+                    }
+                }
+            }
+
+            if (asteroids.length === 0 && !enemiesPresent && (currentTime - lastDeathTime >= 5000)) {
+                spawnAsteroids();
+                console.log("No asteroids in play and no enemies, spawned more after 5s delay");
+            }
+
+            for (let asteroid of asteroids) {
+                if (asteroid.scale === 0.25 && !asteroid.isGold) {
+                    let nearestLarge = null;
+                    let minDistance = Infinity;
+                    for (let large of asteroids.filter(a => a.scale >= 0.75)) {
+                        const dx = large.x - asteroid.x;
+                        const dy = large.y - asteroid.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestLarge = large;
+                        }
+                    }
+                    if (nearestLarge && minDistance < 150) {
+                        const dx = nearestLarge.x - asteroid.x;
+                        const dy = nearestLarge.y - asteroid.y;
+                        const angle = Math.atan2(dy, dx);
+                        const orbitSpeed = Math.min(3.0, asteroidMaxSpeed);
+                        asteroid.velocityX = -Math.sin(angle) * orbitSpeed;
+                        asteroid.velocityY = Math.cos(angle) * orbitSpeed;
+                    }
+
+                    if (repulseActive && !jammedPowerUps.includes('repulse')) {
+                        const dx = asteroid.x - playerX;
+                        const dy = asteroid.y - playerY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < 200) {
+                            const vel = getVelocityTowardsTarget(asteroid.x, asteroid.y, playerX, playerY, 5, true);
+                            asteroid.velocityX = vel.velocityX;
+                            asteroid.velocityY = vel.velocityY;
+                        }
+                    }
+                } else if (asteroid.scale >= 0.75 && !asteroid.isGold && largeRepelActive && !jammedPowerUps.includes('largeRepel')) {
+                    const dx = asteroid.x - playerX;
+                    const dy = asteroid.y - playerY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < 200) {
+                        const vel = getVelocityTowardsTarget(asteroid.x, asteroid.y, playerX, playerY, 5, true);
+                        asteroid.velocityX = vel.velocityX;
+                        asteroid.velocityY = vel.velocityY;
+                    }
+                } else if (asteroid.isGold) {
+                    if (goldAttractionActive && !jammedPowerUps.includes('goldAttraction')) {
+                        const vel = getVelocityTowardsTarget(asteroid.x, asteroid.y, playerX, playerY, 5);
+                        asteroid.velocityX = vel.velocityX;
+                        asteroid.velocityY = vel.velocityY;
+                    } else if (enemiesPresent) {
+                        let nearestEnemy = null;
+                        let minDistance = Infinity;
+                        for (let enemy of enemies) {
+                            const dx = enemy.x - asteroid.x;
+                            const dy = enemy.y - asteroid.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                nearestEnemy = enemy;
+                            }
+                        }
+                        if (nearestEnemy && minDistance < 300) {
+                            const vel = getVelocityTowardsTarget(asteroid.x, asteroid.y, nearestEnemy.x, nearestEnemy.y, 5);
+                            asteroid.velocityX = vel.velocityX;
+                            asteroid.velocityY = vel.velocityY;
+                        }
+                    }
+                }
+            }
+
+            if (shieldRechargeActive && !jammedPowerUps.includes('shieldRecharge') && currentTime - lastRechargeTime >= 5000) {
+                if (shieldHealth < maxShieldHealth) {
+                    shieldHealth++;
+                    console.log(`Inner shield recharged by power-up, health: ${shieldHealth}`);
+                } else if (secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth < maxShieldHealth) {
+                    secondShieldHealth++;
+                    console.log(`Second shield recharged by power-up, health: ${secondShieldHealth}`);
+                }
+                lastRechargeTime = currentTime;
+            }
+
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                const asteroid = asteroids[i];
+                asteroid.x += asteroid.velocityX;
+                asteroid.y += asteroid.velocityY;
+                asteroid.rotation += asteroid.angularVelocity;
+
+                if (!asteroid.isGold || (goldAttractionActive && !jammedPowerUps.includes('goldAttraction'))) {
+                    const speed = Math.sqrt(asteroid.velocityX * asteroid.velocityX + asteroid.velocityY * asteroid.velocityY);
+                    if (speed > asteroidMaxSpeed) {
+                        asteroid.velocityX = (asteroid.velocityX / speed) * asteroidMaxSpeed;
+                        asteroid.velocityY = (asteroid.velocityY / speed) * asteroidMaxSpeed;
+                    }
+                }
+
+                if (asteroid.x < 0) asteroid.x = canvas.width;
+                else if (asteroid.x > canvas.width) asteroid.x = 0;
+                if (asteroid.y < 0) asteroid.y = canvas.height;
+                else if (asteroid.y > canvas.height) asteroid.y = 0;
+
+                const timeSinceSpawn = currentTime - asteroid.spawnTime;
+                if (timeSinceSpawn < 1000) {
+                    asteroid.opacity = timeSinceSpawn / 1000;
+                } else {
+                    asteroid.opacity = 1;
+                }
+
+                if (asteroid.scale === 0.25 && asteroid.lifetime !== Infinity) {
+                    const timeLeft = asteroid.spawnTime + asteroid.lifetime - currentTime;
+                    if (timeLeft <= 1000) {
+                        asteroid.opacity = timeLeft / 1000;
+                    }
+                    if (timeLeft <= 0) {
+                        explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                        asteroids.splice(i, 1);
+                        console.log("25% scale asteroid despawned after 5s");
+                        continue;
+                    }
+                }
+            }
+
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                const powerUp = powerUps[i];
+                const vel = getVelocityTowardsTarget(powerUp.x, powerUp.y, playerX, playerY, 5);
+                powerUp.x += vel.velocityX;
+                powerUp.y += vel.velocityY;
+
+                if (isColliding({ x: playerX, y: playerY, width: 75, height: 75 }, powerUp)) {
+                    shieldHealth = maxShieldHealth;
+                    if (secondShieldActive && !jammedPowerUps.includes('secondShield')) {
+                        secondShieldHealth = maxShieldHealth;
+                    }
+                    console.log("Power-up collected, all unjammed shields fully recharged");
+
+                    if (powerUp.jammedPowerUp) {
+                        jammedPowerUps = jammedPowerUps.filter(p => p !== powerUp.jammedPowerUp);
+                        console.log(`Power-up collected: ${powerUp.jammedPowerUp} unjammed`);
+                    } else {
+                        if (powerUp.type === 'goldAttraction') {
+                            goldAttractionActive = true;
+                            goldAttractionEarned = true;
+                            console.log("Gold attraction enabled");
+                        } else if (powerUp.type === 'triShot') {
+                            triShotActive = true;
+                            triShotEarned = true;
+                            console.log("Tri-shot enabled");
+                        } else if (powerUp.type === 'secondShield') {
+                            secondShieldActive = true;
+                            secondShieldEarned = true;
+                            secondShieldHealth = maxShieldHealth;
+                            console.log("Second shield enabled");
+                        } else if (powerUp.type === 'repulse') {
+                            repulseActive = true;
+                            repulseEarned = true;
+                            console.log("Repulsion enabled");
+                        } else if (powerUp.type === 'shieldRecharge') {
+                            shieldRechargeActive = true;
+                            shieldRechargeEarned = true;
+                            lastRechargeTime = currentTime;
+                            console.log("Shield recharge enabled");
+                        } else if (powerUp.type === 'emp') {
+                            empActive = true;
+                            empEarned = true;
+                            lastEmpTime = 0;
+                            console.log("EMP enabled");
+                        } else if (powerUp.type === 'fasterFire') {
+                            fasterFireActive = true;
+                            fasterFireEarned = true;
+                            console.log("Faster fire enabled");
+                        } else if (powerUp.type === 'largeRepel') {
+                            largeRepelActive = true;
+                            largeRepelEarned = true;
+                            console.log("Large repel enabled");
+                        } else if (powerUp.type === 'bulletWrap') {
+                            bulletWrapActive = true;
+                            bulletWrapEarned = true;
+                            console.log("Bullet wrap enabled");
+                        } else if (powerUp.type === 'heatSeek') {
+                            heatSeekActive = true;
+                            heatSeekEarned = true;
+                            console.log("Heat-seeking enabled");
+                        }
+                    }
+                    powerUps.splice(i, 1);
+                }
+            }
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                enemy.x += enemy.velocityX;
+                enemy.y += enemy.velocityY;
+                enemy.rotation += enemy.angularVelocity;
+
+                if (enemy.x < 0) enemy.x = canvas.width;
+                else if (enemy.x > canvas.width) enemy.x = 0;
+                if (enemy.y < 0) enemy.y = canvas.height;
+                else if (enemy.y > canvas.height) enemy.y = 0;
+
+                if (Date.now() - enemy.lastShotTime > 2000) {
+                    shootEnemyBullet(enemy);
+                    enemy.lastShotTime = Date.now();
+                }
+
+                if (isColliding({ x: playerX, y: playerY, width: 75, height: 75 }, enemy)) {
+                    const playerHasShield = (secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth > 0) || shieldHealth > 0;
+                    const enemyHasShield = (enemy.secondShieldHealth > 0 || enemy.shieldHealth > 0);
+
+                    if (playerHasShield) {
+                        // Player has a shield, handle collision based on enemy shield status
+                        if (enemyHasShield) {
+                            // Both have shields, bounce enemy off
+                            handleShipCollision({ x: playerX, y: playerY, width: 75 }, enemy);
+                            console.log("Shielded enemy bounced off shielded player");
+                        } else {
+                            // Enemy has no shield, destroy it
+                            explosions.push({ x: enemy.x, y: enemy.y, startTime: currentTime, duration: 500 });
+                            spawnPowerUp(enemy.x, enemy.y, enemy.jammedPowerUp);
+                            enemies.splice(i, 1);
+                            enemiesKilled++;
+                            totalMoneyEarned += 100;
+                            money += 100;
+                            console.log(`Unshielded enemy destroyed by shielded player collision, total enemies killed: ${enemiesKilled}`);
+                            if (enemies.length === 0) {
+                                enemiesPresent = false;
+                                console.log("All enemies killed, asteroid hue effect ended");
+                            }
+                        }
+
+                        // Damage player's shield in both cases
+                        if (secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth > 0) {
+                            secondShieldHealth--;
+                            secondShieldHitTime = currentTime;
+                            console.log(`Second shield hit by enemy collision, health: ${secondShieldHealth}`);
+                        } else if (shieldHealth > 0) {
+                            shieldHealth--;
+                            shieldHitTime = currentTime;
+                            console.log(`Inner shield hit by enemy collision, health: ${shieldHealth}`);
+                            if (shieldHealth === 0) {
+                                gameOver();
+                                return;
+                            }
+                        }
+                    } else if (!playerHasShield && enemyHasShield) {
+                        // Player has no shield, enemy has shield, player dies
+                        gameOver();
+                        return;
+                    }
+                    // If neither has a shield, do nothing (they pass through each other)
+                }
+
+                for (let j = asteroids.length - 1; j >= 0; j--) {
+                    const asteroid = asteroids[j];
+                    if (asteroid.isGold && isColliding(enemy, asteroid)) {
+                        if ((!goldAttractionActive || jammedPowerUps.includes('goldAttraction'))) {
+                            if (enemy.secondShieldHealth !== undefined && enemy.secondShieldHealth < maxShieldHealth) {
+                                enemy.secondShieldHealth = maxShieldHealth;
+                                console.log(`Enemy second shield fully recharged by gold asteroid, health: ${enemy.secondShieldHealth}`);
+                            } else if (enemy.shieldHealth < maxShieldHealth) {
+                                enemy.shieldHealth = maxShieldHealth;
+                                console.log(`Enemy shield fully recharged by gold asteroid, health: ${enemy.shieldHealth}`);
+                            }
+                        }
+                        explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                        asteroids.splice(j, 1);
+                    }
+                }
+            }
+
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.x += bullet.velocityX;
+                bullet.y += bullet.velocityY;
+
+                if (heatSeekActive && !jammedPowerUps.includes('heatSeek')) {
+                    let nearestTarget = null;
+                    let minDistance = Infinity;
+                    for (let asteroid of asteroids) {
+                        const dx = asteroid.x - bullet.x;
+                        const dy = asteroid.y - bullet.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestTarget = asteroid;
+                        }
+                    }
+                    for (let enemy of enemies) {
+                        const dx = enemy.x - bullet.x;
+                        const dy = enemy.y - bullet.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            nearestTarget = enemy;
+                        }
+                    }
+                    if (nearestTarget) {
+                        const vel = getVelocityTowardsTarget(bullet.x, bullet.y, nearestTarget.x, nearestTarget.y, bulletSpeed);
+                        bullet.velocityX = vel.velocityX;
+                        bullet.velocityY = vel.velocityY;
+                    }
+                }
+
+                if (bulletWrapActive && !jammedPowerUps.includes('bulletWrap')) {
+                    if (bullet.x < 0) bullet.x = canvas.width;
+                    else if (bullet.x > canvas.width) bullet.x = 0;
+                    if (bullet.y < 0) bullet.y = canvas.height;
+                    else if (bullet.y > canvas.height) bullet.y = 0;
+                } else {
+                    if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height || Date.now() > bullet.lifetime) {
+                        bullets.splice(i, 1);
+                        continue;
+                    }
+                }
+
+                for (let j = asteroids.length - 1; j >= 0; j--) {
+                    const asteroid = asteroids[j];
+                    if (isColliding(bullet, asteroid)) {
+                        bullets.splice(i, 1);
+                        shotsHit += 1;
+                        asteroid.hitsTaken = (asteroid.hitsTaken || 0) + 1;
+                        if (asteroid.hitsTaken >= asteroid.hitsRequired) {
+                            const originalX = asteroid.x;
+                            const originalY = asteroid.y;
+                            if (asteroid.scale > 0.75) {
+                                spawnAsteroid(true, originalX, originalY);
+                                for (let k = 0; k < 2; k++) {
+                                    spawnSmallAsteroid(originalX, originalY);
+                                }
+                            } else if (currentTime - lastAsteroidSpawnTime >= asteroidSpawnCooldown && !enemiesPresent && (currentTime - lastDeathTime >= 5000)) {
+                                spawnAsteroid(false);
+                                lastAsteroidSpawnTime = currentTime;
+                                if (Math.random() < 0.2) spawnAsteroid(false);
+                            }
+                            explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                            asteroids.splice(j, 1);
+                            const pointsEarned = asteroid.isGold ? 1000 : 10;
+                            totalMoneyEarned += pointsEarned;
+                            money += pointsEarned;
+                            if (asteroid.isGold && shieldHealth < maxShieldHealth && (!secondShieldActive || jammedPowerUps.includes('secondShield') || secondShieldHealth === 0)) {
+                                shieldHealth++;
+                                console.log(`Inner shield recharged by gold asteroid shot, health: ${shieldHealth}`);
+                            } else if (asteroid.isGold && secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth < maxShieldHealth) {
+                                secondShieldHealth++;
+                                console.log(`Second shield recharged by gold asteroid shot, health: ${secondShieldHealth}`);
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (isColliding(bullet, enemy)) {
+                        bullets.splice(i, 1);
+                        shotsHit += 1;
+                        enemy.hitsTaken = (enemy.hitsTaken || 0) + 1;
+
+                        if (enemy.secondShieldHealth !== undefined && enemy.secondShieldHealth > 0) {
+                            if (enemy.hitsTaken >= enemy.hitsRequired - (2 * maxShieldHealth)) {
+                                enemy.secondShieldHealth--;
+                                enemy.secondShieldHitTime = currentTime;
+                                console.log(`Enemy second shield hit, health: ${enemy.secondShieldHealth}, hits taken: ${enemy.hitsTaken}/${enemy.hitsRequired}`);
+                            }
+                        } else if (enemy.shieldHealth > 0) {
+                            if (enemy.hitsTaken >= (enemy.secondShieldHealth !== undefined ? 8 : 1)) {
+                                enemy.shieldHealth--;
+                                enemy.shieldHitTime = currentTime;
+                                console.log(`Enemy shield hit, health: ${enemy.shieldHealth}, hits taken: ${enemy.hitsTaken}/${enemy.hitsRequired}`);
+                            }
+                        } else {
+                            if (enemy.hitsTaken >= enemy.hitsRequired) {
+                                explosions.push({ x: enemy.x, y: enemy.y, startTime: currentTime, duration: 500 });
+                                spawnPowerUp(enemy.x, enemy.y, enemy.jammedPowerUp);
+                                enemies.splice(j, 1);
+                                enemiesKilled++;
+                                totalMoneyEarned += 100;
+                                money += 100;
+                                console.log(`Enemy killed, total: ${enemiesKilled}`);
+                                if (enemies.length === 0) {
+                                    enemiesPresent = false;
+                                    console.log("All enemies killed, asteroid hue effect ended");
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const bullet = enemyBullets[i];
+                bullet.x += bullet.velocityX;
+                bullet.y += bullet.velocityY;
+
+                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height || Date.now() > bullet.lifetime) {
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+
+                if (isColliding({ x: playerX, y: playerY, width: 75, height: 75 }, bullet)) {
+                    enemyBullets.splice(i, 1);
+                    if (secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth > 0) {
+                        secondShieldHealth--;
+                        secondShieldHitTime = currentTime;
+                        console.log(`Second shield hit by enemy bullet, health: ${secondShieldHealth}`);
+                    } else if (shieldHealth > 0) {
+                        shieldHealth--;
+                        shieldHitTime = currentTime;
+                        console.log(`Inner shield hit by enemy bullet, health: ${shieldHealth}`);
+                        if (shieldHealth === 0) {
+                            gameOver();
+                            return;
+                        }
+                    }
+                }
+            }
+
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                const asteroid = asteroids[i];
+                if (isColliding({ x: playerX, y: playerY, width: 75, height: 75 }, asteroid)) {
+                    if (secondShieldActive && !jammedPowerUps.includes('secondShield') && secondShieldHealth > 0) {
+                        if (asteroid.isGold) {
+                            if (secondShieldHealth < maxShieldHealth) {
+                                secondShieldHealth++;
+                                console.log(`Second shield recharged by gold asteroid collision, health: ${secondShieldHealth}`);
+                            }
+                            totalMoneyEarned += 1000;
+                            money += 1000;
+                            explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                            asteroids.splice(i, 1);
+                        } else {
+                            secondShieldHealth--;
+                            secondShieldHitTime = currentTime;
+                            console.log(`Second shield hit by asteroid, health: ${secondShieldHealth}`);
+                            const dx = asteroid.x - playerX;
+                            const dy = asteroid.y - playerY;
+                            const angle = Math.atan2(dy, dx);
+                            const speed = Math.sqrt(asteroid.velocityX * asteroid.velocityX + asteroid.velocityY * asteroid.velocityY);
+                            asteroid.velocityX = Math.cos(angle) * speed * 1.1;
+                            asteroid.velocityY = Math.sin(angle) * speed * 1.1;
+                        }
+                    } else if (shieldHealth > 0) {
+                        if (asteroid.isGold) {
+                            if (shieldHealth < maxShieldHealth) {
+                                shieldHealth++;
+                                console.log(`Inner shield recharged by gold asteroid collision, health: ${shieldHealth}`);
+                            }
+                            totalMoneyEarned += 1000;
+                            money += 1000;
+                            explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                            asteroids.splice(i, 1);
+                        } else {
+                            shieldHealth--;
+                            shieldHitTime = currentTime;
+                            console.log(`Inner shield hit by asteroid, health: ${shieldHealth}`);
+                            const dx = asteroid.x - playerX;
+                            const dy = asteroid.y - playerY;
+                            const angle = Math.atan2(dy, dx);
+                            const speed = Math.sqrt(asteroid.velocityX * asteroid.velocityX + asteroid.velocityY * asteroid.velocityY);
+                            asteroid.velocityX = Math.cos(angle) * speed * 1.1;
+                            asteroid.velocityY = Math.sin(angle) * speed * 1.1;
+                            if (shieldHealth === 0) {
+                                gameOver();
+                                return;
+                            }
+                        }
+                    } else if (asteroid.isGold) {
+                        if (shieldHealth < maxShieldHealth) {
+                            shieldHealth++;
+                            console.log(`Inner shield recharged by gold asteroid collision, health: ${shieldHealth}`);
+                        }
+                        totalMoneyEarned += 1000;
+                        money += 1000;
+                        explosions.push({ x: asteroid.x, y: asteroid.y, startTime: currentTime, duration: 500 });
+                        asteroids.splice(i, 1);
+                    }
+                }
+            }
+
+            if (money >= lastScoreThreshold + 10000) {
+                spawnEnemyShip();
+                lastScoreThreshold += 10000;
+            }
+        }
+
+        function isColliding(obj1, obj2) {
+            const radius1 = obj1.width / 2;
+            const radius2 = obj2.width / 2;
+            const dx = obj1.x - obj2.x;
+            const dy = obj1.y - obj2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < (radius1 + radius2);
+        }
+
+        function gameOver() {
+            const currentTime = Date.now();
+            deathFlashTime = currentTime;
+            lastDeathTime = currentTime;
+
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                explosions.push({ x: asteroids[i].x, y: asteroids[i].y, startTime: currentTime, duration: 500 });
+                asteroids.splice(i, 1);
+            }
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                explosions.push({ x: enemies[i].x, y: enemies[i].y, startTime: currentTime, duration: 500 });
+                enemies.splice(i, 1);
+            }
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                explosions.push({ x: powerUps[i].x, y: powerUps[i].y, startTime: currentTime, duration: 500 });
+                powerUps.splice(i, 1);
+            }
+            bullets.length = 0;
+            enemyBullets.length = 0;
+            enemiesPresent = false;
+            console.log("Death EMP: All asteroids (including gold), enemies, powerups, and bullets destroyed");
+
+            lives--;
+            if (lives > 0) {
+                money = Math.max(0, money - 100000);
+                totalMoneySpent += 100000;
+                currentLevel = Math.max(1, currentLevel - 1);
+                lastScoreThreshold = Math.max(0, lastScoreThreshold - 10000);
+                playerX = 600;
+                playerY = 400;
+                playerVelocityX = 0;
+                playerVelocityY = 0;
+                playerAngle = 0;
+                shieldHealth = maxShieldHealth;
+                secondShieldHealth = secondShieldActive && !jammedPowerUps.includes('secondShield') ? maxShieldHealth : 0;
+                shieldHitTime = 0;
+                secondShieldHitTime = 0;
+                countdownStartTime = Date.now();
+                countdownActive = true;
+                gameActive = false;
+                console.log(`Life lost! Money -100,000, Level regressed to ${currentLevel}, Remaining lives: ${lives}, countdown started, respawn delayed 5s`);
+            } else {
+                gameState = 'gameover';
+                gameActive = false;
+                if (money > highMoney) {
+                    highMoney = money;
+                    localStorage.setItem('highMoney', money);
+                }
+                if (enemiesKilled > highEnemiesKilled) {
+                    highEnemiesKilled = enemiesKilled;
+                    localStorage.setItem('highEnemiesKilled', highEnemiesKilled);
+                }
+                gameOverTimeout = setTimeout(() => {
+                    gameState = 'menu';
+                    startButton.style.display = 'block';
+                }, 10000);
+                console.log("Game over, no lives remaining");
+            }
+        }
+
+        function gameLoop() {
+            if (gameState === 'playing') {
+                updatePlayer();
+            }
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'h') {
+                debugMode = !debugMode;
+                console.log(`Debug mode ${debugMode ? 'enabled' : 'disabled'}`);
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '1' && gameState === 'playing' && (goldAttractionActive || debugMode)) {
+                if (!jammedPowerUps.includes('goldAttraction')) {
+                    goldAttractionActive = !goldAttractionActive;
+                    console.log(`Gold attraction ${goldAttractionActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '2' && gameState === 'playing' && (triShotActive || debugMode)) {
+                if (!jammedPowerUps.includes('triShot')) {
+                    triShotActive = !triShotActive;
+                    console.log(`Tri-shot ${triShotActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '3' && gameState === 'playing' && (secondShieldActive || debugMode)) {
+                if (!jammedPowerUps.includes('secondShield')) {
+                    secondShieldActive = !secondShieldActive;
+                    console.log(`Second shield ${secondShieldActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '4' && gameState === 'playing' && (repulseActive || debugMode)) {
+                if (!jammedPowerUps.includes('repulse')) {
+                    repulseActive = !repulseActive;
+                    console.log(`Repulsion ${repulseActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '5' && gameState === 'playing' && (shieldRechargeActive || debugMode)) {
+                if (!jammedPowerUps.includes('shieldRecharge')) {
+                    shieldRechargeActive = !shieldRechargeActive;
+                    console.log(`Shield recharge ${shieldRechargeActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '7' && gameState === 'playing' && (fasterFireActive || debugMode)) {
+                if (!jammedPowerUps.includes('fasterFire')) {
+                    fasterFireActive = !fasterFireActive;
+                    console.log(`Faster fire ${fasterFireActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '8' && gameState === 'playing' && (largeRepelActive || debugMode)) {
+                if (!jammedPowerUps.includes('largeRepel')) {
+                    largeRepelActive = !largeRepelActive;
+                    console.log(`Large repel ${largeRepelActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '9' && gameState === 'playing' && (bulletWrapActive || debugMode)) {
+                if (!jammedPowerUps.includes('bulletWrap')) {
+                    bulletWrapActive = !bulletWrapActive;
+                    console.log(`Bullet wrap ${bulletWrapActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (e.key === '0' && gameState === 'playing' && (heatSeekActive || debugMode)) {
+                if (!jammedPowerUps.includes('heatSeek')) {
+                    heatSeekActive = !heatSeekActive;
+                    console.log(`Heat-seeking ${heatSeekActive ? 'enabled' : 'disabled'}`);
+                }
+                e.preventDefault();
+                return;
+            }
+            if (gameState !== 'playing' || !gameActive) return;
+            if (e.key === 'a') rotateLeft = true;
+            else if (e.key === 'd') rotateRight = true;
+            else if (e.key === 'w') forwardThrust = true;
+            else if (e.key === 's') reverseThrust = true;
+            else if (e.key === 'q') strafeLeft = true;
+            else if (e.key === 'e') strafeRight = true;
+            else if (e.key === ' ') shooting = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (gameState !== 'playing' || !gameActive) return;
+            if (e.key === 'a') rotateLeft = false;
+            else if (e.key === 'd') rotateRight = false;
+            else if (e.key === 'w') forwardThrust = false;
+            else if (e.key === 's') reverseThrust = false;
+            else if (e.key === 'q') strafeLeft = false;
+            else if (e.key === 'e') strafeRight = false;
+            else if (e.key === ' ') shooting = false;
+        });
+
+        startButton.addEventListener('click', () => {
+            if (gameState === 'menu' || gameState === 'gameover') {
+                if (gameOverTimeout) {
+                    clearTimeout(gameOverTimeout);
+                    gameOverTimeout = null;
+                }
+                resetGame();
+            }
+        });
+
+        Promise.all([
+            new Promise(resolve => playerImage.onload = resolve),
+            ...asteroidImages.map(img => new Promise(resolve => img.onload = resolve)),
+            ...goldAsteroidImages.map(img => new Promise(resolve => img.onload = resolve)),
+            ...enemyImages.map(img => new Promise(resolve => img.onload = resolve)),
+            new Promise(resolve => bulletImage.onload = resolve),
+            new Promise(resolve => powerUpImage.onload = resolve)
+        ]).then(() => {
+            console.log("All critical assets loaded, starting game loop");
+            gameLoop();
+        }).catch(err => console.error("Critical asset loading failed:", err));
+    </script>
+</body>
+</html>
